@@ -224,23 +224,126 @@ We configured and tested four firewall rules required by the specification. For 
 iptables -I INPUT -p tcp --dport 80 -j DROP
 ```
 
-![Enter the Command to block the HTTP traffic on port 80](/images/firewall/fw-01-http-block-command.png)
 
-After applying the rule the browser timed out and the site was unreachable. To restore access remove the rule:
+
+After applying the rule the browser timed out and the site was unreachable. 
+
+![Enter the Command to block the HTTP traffic on port 80](/images/firewall/fw-02-http-blocked.png)
+
+To restore access remove the rule:
 
 ```bash
 iptables -D INPUT -p tcp --dport 80 -j DROP
 ```
 
-![Enter the Command to remove the HTTP block and then restore port 80 access](/images/firewall/fw-03-http-unblock-command.png)
+
+After removing the rule, refreshing the browser confirmed the website loaded again.
+
+
+![Enter the Command to remove the HTTP block and then restore port 80 access](/images/firewall/fw-04-http-unblocked.png)
+
+
+---
+
+### Rule 2: Allow the SSH and Change the Port (22 → 2222)
+
+**Purpose:** SSH on the port 22 is the most frequently targeted port by the automated scanning tools and the brute-force attacks across the internet. Then Changing SSH to a non-standard port such as 2222 reduces this noise significantly.
+
+**Before — SSH working on port 22:**
+
+We have to open the PowerShell on the Windows host and then connected to the router on the default port:
+
+```
+ssh root@192.168.56.2
+```
+
+![SSH connection to the OpenWRT on port 22 before changing the port](images/firewall/fw-05-ssh-port22-before.png)
+
+The connection was successful and then we have then entered the exit to close the session.
+
+**Changing the SSH port using UCI:**
+
+```bash
+uci set dropbear.@dropbear[0].Port=2222
+
+uci commit dropbear
+
+/etc/init.d/dropbear restart
+```
+**After the port 22 fails and then port 2222 works:**
+
+Now make an Attempt to connect on the port 22 now resulted in a "Connection refused" error:
+
+![The SSH connection to the port 22 failing after the port change](images/firewall/fw-09-ssh-port22-fails.png)
+
+Now connect to the new port 2222 was successful:
+
+```
+ssh -p 2222 root@192.168.56.2
+```
+
+![The SSH connection to the port 2222 is working correctly after the change](images/firewall/fw-10-ssh-port2222-works.png)
+
+---
+
+### Rule 3: Block and Allow ICMP (Ping)
+
+**Purpose:** By Blocking the ICMP prevents external parties from using the ping command to determine whether the router is online and to measure the round-trip times.
+
+**Before — ping replies received:**
+
+We ran ping 192.168.56.2 from the Windows host. The router responded with normal ICMP echo replies and then confirming it was reachable and ICMP was allowed.
+
+![Then Ping to the OpenWRT succeeding before the block rule is applied](images/firewall/fw-11-icmp-before.png)
+
+**Applying the block:**
+
+```bash
+iptables -I INPUT -p icmp -j DROP
+```
+
+**After — ping requests time out:**
+
+The same ping command now that have showed that the "Request timed out" for every packet sent and the router was still running but no longer responding to ICMP.
+
+![The Ping timing out after the ICMP block rule was applied](images/firewall/fw-13-icmp-blocked.png)
+
+**Restoring ICMP:**
+
+```bash
+iptables -D INPUT -p icmp -j DROP
+```
+
+Running the ping again confirmed that replies resumed immediately after the rule was removed.
+
+![The Ping replies resuming after the ICMP block was removed](images/firewall/fw-15-icmp-restored.png)
+
+---
+
+### Rule 4: Restrict Management Interface Access (Port 81)
+
+**Purpose:** The LuCI management web interface should not be accessible to ordinary staff workstations and only the IT support staff should be able to reach it. This rule restricts access to port 81 to a single trusted management IP address only.
+
+**Moving LuCI from port 80 to port 81:**
+
+We have first moved the LuCI interface to port 81 so that port 80 remains free for the business website. This required three UCI commands:
+
+```bash
+uci set uhttpd.main.listen_http='0.0.0.0:81'
+
+uci commit uhttpd
+
+/etc/init.d/uhttpd restart
+```
+We have verified the move worked by opening http://192.168.56.2:81 in the Windows host browser. The LuCI login page appeared on the new port.
+
+![The LuCI interface accessible on the port 81 after moving from port 80](images/firewall/fw-19-luci-port81-verify.jpeg)
 
 **Applying the access restriction:**
 
 ```bash
 iptables -I INPUT -p tcp --dport 81 ! -s 192.168.56.1 -j DROP
 ```
-
-![The iptables rule to block all connections to port 81 except from 192.168.56.1](/images/firewall/fw-20-luci-restrict-command.png)
 
 This rule drops all the TCP connections to port `81` unless the source IP address is `192.168.56.1` which is the Windows host. Any other machine on the network attempting to reach the management interface would be blocked.
 
@@ -252,15 +355,13 @@ To test it without using the Windows host so we have installed curl on the OpenW
 apk add curl
 ```
 
-![Install the curl on OpenWRT to test the restriction](/images/firewall/fw-21-install-curl.png)
-
 ```bash
 curl -I http://192.168.56.2:81
 ```
 
 ![The curl test from the OpenWRT showing the connection to port 81 is blocked for non-allowed sources](/images/firewall/fw-22-luci-restrict-test.png)
 
-The curl command shows no response and confirming the rule was working only connections from `192.168.56.1` are permitted to reach the LuCI interface.
+The curl command shows no response and confirming the rule was working  only connections from `192.168.56.1` are permitted to reach the LuCI interface.
 
 > **Note:** We were careful throughout this step to keep the Windows host (192.168.56.1) excluded from the DROP rule at all times, so we did not lock ourselves out of the management interface.
 
