@@ -2,9 +2,6 @@
 
 This section summarises what worked, what did not, and what we learned working together.
 
-## GitHub Commits
-
-- [Github Commits](./images/commits.png)
 
 ## Task Split
 
